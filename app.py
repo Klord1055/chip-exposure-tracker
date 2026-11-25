@@ -13,7 +13,7 @@ from tracker.model import (POLICY_TIMELINE, SCENARIOS, SEGMENTS, Scenario, break
                            monte_carlo, recovery_path, scenario_impact, summary_stats)
 from tracker.live import (CIKS, FRED_SERIES, apply_live_revenue, fetch_ecb_fx, fetch_fred, fetch_sec_revenue,
                           load_snapshot, trade_change)
-from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway
+from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway, wrap
 
 st.set_page_config(page_title="Chip Export Control Exposure Tracker", page_icon="🔌", layout="wide")
 setup()
@@ -199,13 +199,17 @@ with tabs[0]:
                  color_discrete_map=TIER_COLORS, text=exp.sort_values("china_share")["china_share"].map("{:.0%}".format),
                  labels={"china_share": "China share of revenue", "company": "", "tier": "Exposure"})
     fig.update_traces(textposition="outside", textfont=dict(size=14))
-    fig.update_layout(height=360, xaxis_tickformat=".0%", margin=dict(t=40, b=10), title="Share of revenue from China")
+    fig.update_traces(cliponaxis=False)
+    fig.update_layout(height=400, xaxis_tickformat=".0%", margin=dict(t=40, b=60), title="Share of revenue from China",
+                      xaxis_range=[0, float(exp["china_share"].max()) * 1.3], legend=dict(orientation="h", y=-0.3, x=0), )
     a.plotly_chart(fig, width=W, theme=None)
     e2 = exp.sort_values("china_revenue_bn")
     fig2 = px.bar(e2, x="china_revenue_bn", y="company", orientation="h", color_discrete_sequence=[NAVY],
                   text=e2["china_revenue_bn"].map("${:,.1f}bn".format), labels={"china_revenue_bn": "$bn", "company": ""})
     fig2.update_traces(textposition="outside", textfont=dict(size=14))
-    fig2.update_layout(height=360, margin=dict(t=40, b=10), title="China revenue in dollars")
+    fig2.update_traces(cliponaxis=False)
+    fig2.update_layout(height=400, margin=dict(t=40, b=10), title="China revenue in dollars",
+                       xaxis_range=[0, float(exp["china_revenue_bn"].max()) * 1.4])
     b.plotly_chart(fig2, width=W, theme=None)
     top_share, top_dollar = exp.iloc[0], exp.sort_values("china_revenue_bn").iloc[-1]
     e = lambda x: html.escape(str(x))
@@ -251,7 +255,9 @@ with tabs[2]:
                  text=s2["revenue_lost_pct"].map("{:.1%}".format),
                  labels={"revenue_lost_pct": "Share of total revenue lost", "company": "", "segment": "Segment"})
     fig.update_traces(textposition="outside", textfont=dict(size=14))
-    fig.update_layout(height=330, xaxis_tickformat=".1%", margin=dict(t=40, b=10), title="Hit to each company's total revenue")
+    fig.update_traces(cliponaxis=False)
+    fig.update_layout(height=380, xaxis_tickformat=".1%", margin=dict(t=40, b=50), title="Hit to each company's total revenue",
+                      xaxis_range=[0, float(s2["revenue_lost_pct"].max()) * 1.25], legend=dict(orientation="h", y=-0.3, x=0), )
     st.plotly_chart(fig, width=W, theme=None)
     table = imp[["company", "segment", "china_revenue_bn", "loss_rate", "revenue_lost_bn", "revenue_lost_pct",
                  "op_profit_lost_bn", "value_at_risk_bn"]].rename(columns={
@@ -268,7 +274,7 @@ with tabs[2]:
             for _, r in imp.iterrows() for y, v in enumerate(recovery_path(r.revenue_lost_bn, rc), start=1)]
     fig3 = px.bar(pd.DataFrame(rows), x="Year", y="Net revenue lost ($bn)", color="Company", barmode="stack",
                   color_discrete_sequence=[NAVY, "#6B4FA8", GOLD, GREEN, RED, "#2B2F36", "#0E7490", "#9D174D"])
-    fig3.update_layout(height=330, margin=dict(t=10, b=10))
+    fig3.update_layout(height=400, margin=dict(t=10, b=50), legend=dict(orientation="h", y=-0.25, x=0))
     st.plotly_chart(fig3, width=W, theme=None)
     takeaway(f"Year 1 is the full hit. With {rc:.0%} of lost sales resold elsewhere by year 3, the annual hit falls from <b>${total_lost:,.1f}bn</b> to "
              f"<b>${yr3:,.1f}bn</b>.")
@@ -326,12 +332,12 @@ with tabs[5]:
                 s2 = s_[s_["date"] >= "2015-01-01"]
                 tf.add_scatter(x=s2["date"], y=s2["value"].rolling(3, min_periods=1).mean() / 1000, name=name_ + " (3 month avg)",
                                mode="lines", line=dict(color=col_, width=3))
-        for d_, lab_ in (("2022-10-07", "Oct 2022 rules"), ("2023-10-17", "Oct 2023 update"), ("2024-12-02", "Dec 2024 rules"),
-                         ("2025-04-15", "H20 license")):
-            tf.add_shape(type="line", x0=d_, x1=d_, y0=0, y1=1, yref="paper", line=dict(color=RED, dash="dot", width=2))
-            tf.add_annotation(x=d_, y=1, yref="paper", text=lab_, showarrow=False, yanchor="bottom",
-                              font=dict(size=12, color=RED), textangle=-30)
-        tf.update_layout(height=420, margin=dict(t=60, b=10), yaxis_title="$ billions per month",
+        for d_, lab_, top_ in (("2022-10-07", "Oct 2022 rules", 1.28), ("2023-10-17", "Oct 2023 update", 1.21),
+                               ("2024-12-02", "Dec 2024 rules", 1.14), ("2025-04-15", "H20 license", 1.07)):
+            tf.add_shape(type="line", x0=d_, x1=d_, y0=0, y1=top_, yref="paper", line=dict(color=RED, dash="dot", width=2))
+            tf.add_annotation(x=d_, y=top_, yref="paper", text=lab_, showarrow=False, yanchor="bottom", xanchor="left",
+                              xshift=3, font=dict(size=12, color=RED))
+        tf.update_layout(height=470, margin=dict(t=120, b=10, r=60), yaxis_title="$ billions per month",
                          legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(tf, width=W, theme=None)
         ch = trade_change(exp_s) if exp_s is not None else None
