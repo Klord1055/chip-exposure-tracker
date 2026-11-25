@@ -97,12 +97,47 @@ def fetch_sec_revenue(ticker: str, timeout: float = 6.0) -> dict | None:
         return None
 
 
+BROWSER_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/124.0 Safari/537.36", "Accept": "text/csv,text/plain,*/*"}
+ECB_URL = "https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1&format=csvdata"
+
+
 def fetch_fred(series: str, timeout: float = 6.0) -> pd.DataFrame | None:
     try:
         import requests
-        r = requests.get(FRED_URL.format(series=series), timeout=timeout, headers={"User-Agent": "chip-exposure-tracker"})
+        r = requests.get(FRED_URL.format(series=series), timeout=timeout, headers=BROWSER_HEADERS)
         r.raise_for_status()
         out = parse_fred_csv(r.text)
         return out if len(out) else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def parse_ecb_fx(text: str) -> float | None:
+    """Latest USD per EUR from the ECB's csvdata format (OBS_VALUE column)."""
+    df = pd.read_csv(io.StringIO(text))
+    if "OBS_VALUE" not in df.columns or df.empty:
+        return None
+    v = pd.to_numeric(df["OBS_VALUE"], errors="coerce").dropna()
+    return float(v.iloc[-1]) if len(v) else None
+
+
+def fetch_ecb_fx(timeout: float = 6.0) -> float | None:
+    try:
+        import requests
+        r = requests.get(ECB_URL, timeout=timeout, headers=BROWSER_HEADERS)
+        r.raise_for_status()
+        return parse_ecb_fx(r.text)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def load_snapshot(path) -> dict:
+    """Saved copy of the FRED trade series, used when FRED cannot be reached. The first line is a comment
+    that holds the pull date and the euro rate."""
+    with open(path) as f:
+        header = f.readline()
+        df = pd.read_csv(f, parse_dates=["date"])
+    fx = float(header.rsplit(":", 1)[1]) if ":" in header else None
+    series = {s: df[["date", s]].rename(columns={s: "value"}) for s in ("EXPCH", "IMPCH")}
+    return dict(series=series, fx=fx, through=df["date"].max())
