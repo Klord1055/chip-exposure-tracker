@@ -1,0 +1,6 @@
+company,ticker,segment,annual_revenue_bn,china_share,share_period,source
+NVIDIA,NVDA,Chip designer,130.5,0.131,FY2025 (billing location),NVIDIA FY2025 10-K
+ASML,ASML,Equipment,30.6,0.41,2024 (share of system sales),ASML 2024 annual results (EUR 28.3B converted at 1.08)
+Applied Materials,AMAT,Equipment,27.2,0.31,Quarter ended Jan 2025,Applied Materials Q1 FY2025 results
+Lam Research,LRCX,Equipment,14.9,0.31,Quarter ended Dec 2024,Lam Research Q2 FY2025 results
+KLA,KLAC,Equipment,9.8,0.42,Quarter ended Mar 2024,KLA Q3 FY2024 results
