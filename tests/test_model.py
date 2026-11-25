@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tracker.model import (SCENARIOS, Scenario, exposure_table, monte_carlo, recovery_path,
+from tracker.model import (SCENARIOS, breaking_point, clean, Scenario, exposure_table, monte_carlo, recovery_path,
                            scenario_impact, summary_stats)
 
 DATA = pd.read_csv(Path(__file__).resolve().parents[1] / "data" / "companies.csv")
@@ -44,7 +44,7 @@ def test_value_at_risk_formula():
 
 def test_recovery_path_declines():
     p = recovery_path(10, 0.3)
-    assert p[0] == pytest.approx(9.0) and p[-1] == pytest.approx(7.0)
+    assert p[0] == pytest.approx(10.0) and p[1] == pytest.approx(8.5) and p[-1] == pytest.approx(7.0)
     assert p == sorted(p, reverse=True)
 
 
@@ -55,3 +55,22 @@ def test_monte_carlo_centers_on_scenario():
     st = summary_stats(sims)
     assert st["p5"] < base < st["p95"]
     assert abs(st["mean"] - base) / base < 0.05
+
+
+def test_breaking_point_exact():
+    bp = breaking_point(DATA, 0.05).set_index("ticker")
+    assert bp.loc["NVDA", "breaking_point"] == pytest.approx(0.05 / 0.131)
+    assert bp.loc["KLAC", "breaking_point"] == pytest.approx(0.05 / 0.42)
+
+
+def test_clean_drops_bad_rows():
+    bad = pd.concat([DATA, pd.DataFrame([{"company": "X", "segment": "Equipment", "annual_revenue_bn": 0, "china_share": 0.2},
+                                         {"company": "Y", "segment": "Equipment", "annual_revenue_bn": 5, "china_share": 1.4},
+                                         {"company": None, "segment": "Equipment", "annual_revenue_bn": 5, "china_share": 0.2}])])
+    assert len(clean(bad)) == len(DATA)
+
+
+def test_full_loss_monte_carlo_matches_deterministic():
+    s = Scenario("all", 1.0, 1.0, 0, "")
+    sims = monte_carlo(DATA, s, n=2000, sd=0.0)
+    assert sims.revenue_lost_bn.mean() == pytest.approx(scenario_impact(DATA, s).revenue_lost_bn.sum())
