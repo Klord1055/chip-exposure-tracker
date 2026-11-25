@@ -11,7 +11,8 @@ import streamlit as st
 
 from tracker.model import (POLICY_TIMELINE, SCENARIOS, SEGMENTS, Scenario, breaking_point, clean, exposure_table,
                            monte_carlo, recovery_path, scenario_impact, summary_stats)
-from tracker.live import CIKS, FRED_SERIES, apply_live_revenue, fetch_fred, fetch_sec_revenue, trade_change
+from tracker.live import (CIKS, FRED_SERIES, apply_live_revenue, fetch_ecb_fx, fetch_fred, fetch_sec_revenue,
+                          load_snapshot, trade_change)
 from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway
 
 st.set_page_config(page_title="Chip Export Control Exposure Tracker", page_icon="🔌", layout="wide")
@@ -43,6 +44,14 @@ def _fred(series: str) -> pd.DataFrame:
     return r
 
 
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _ecb(_: str) -> float:
+    r = fetch_ecb_fx()
+    if r is None:
+        raise RuntimeError("ECB unavailable")
+    return r
+
+
 def _try(fn, arg):
     try:
         return fn(arg)
@@ -54,8 +63,18 @@ def get_live() -> dict:
     """Free sources, cached for a day once they succeed. Anything that fails comes back as None."""
     revenue = {t: _try(_sec, t) for t in CIKS}
     fred = {s: _try(_fred, s) for s in FRED_SERIES}
-    fx = fred["DEXUSEU"]["value"].iloc[-1] if fred["DEXUSEU"] is not None else None
-    return dict(revenue=revenue, fred=fred, fx=fx, pulled=pd.Timestamp.now(tz="America/New_York"))
+    snap = load_snapshot(ROOT / "data" / "fred_snapshot.csv")
+    trade_live = fred["EXPCH"] is not None
+    if not trade_live:  # FRED sometimes turns away cloud servers; fall back to the saved copy
+        fred["EXPCH"], fred["IMPCH"] = snap["series"]["EXPCH"], snap["series"]["IMPCH"]
+    if fred["DEXUSEU"] is not None:
+        fx, fx_src = fred["DEXUSEU"]["value"].iloc[-1], "Federal Reserve"
+    elif (ecb := _try(_ecb, "fx")) is not None:
+        fx, fx_src = ecb, "European Central Bank"
+    else:
+        fx, fx_src = snap["fx"], "saved Federal Reserve rate"
+    return dict(revenue=revenue, fred=fred, fx=fx, fx_src=fx_src, trade_live=trade_live,
+                pulled=pd.Timestamp.now(tz="America/New_York"))
 
 
 def reset():
@@ -116,7 +135,8 @@ if use_live:
         newest = max(r["filed"] for r in live_rev.values())
         parts.append(f"annual revenue for <b>{n_ok} of {len(CIKS)}</b> companies is live from SEC filings (newest filed {newest})")
     if exp is not None:
-        parts.append(f"U.S. China trade is live from the Federal Reserve through <b>{exp['date'].iloc[-1]:%b %Y}</b>")
+        parts.append(f"U.S. China trade {'is live from' if live['trade_live'] else 'uses the saved copy of'} the Federal Reserve "
+                     f"series, through <b>{exp['date'].iloc[-1]:%b %Y}</b>")
     msg = ("Live data: " + "; ".join(parts) + f". Checked {live['pulled']:%b %d, %Y}. China shares stay as filed, "
            "because the SEC's free data does not split revenue by country.") if parts else \
           "Live sources could not be reached just now, so the app is using the saved filing figures. It will try again later."
@@ -326,7 +346,8 @@ with tabs[5]:
         if ch:
             takeaway(f"In the 12 months through <b>{ch['through']:%b %Y}</b>, U.S. goods exports to China were <b>{ch['change']:+.0%}</b> "
                      "versus the year before the first chip rules. This is all goods, not just chips, so read it as the backdrop the "
-                     "scenarios sit in. Source: Federal Reserve Bank of St. Louis (FRED), series EXPCH and IMPCH, from Census data.")
+                     "scenarios sit in. Source: Federal Reserve Bank of St. Louis (FRED), series EXPCH and IMPCH, from Census data"
+                     + ("." if live.get("trade_live") else ", from the copy saved Nov 25, 2026 because the live pull was blocked."))
 
 with tabs[6]:
     st.markdown((ROOT / "HOW_IT_WORKS.md").read_text())
