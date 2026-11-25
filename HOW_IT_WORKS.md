@@ -13,3 +13,6 @@
 **Monte Carlo.** For each company, the loss rate is drawn from a beta distribution centered on the scenario value, and the China share moves by a normal shock with the relative standard deviation you set. The app adds the basket's revenue lost in each simulation and reports the mean, median, 5th and 95th percentiles. It measures the year 1 loss before any recovery; loss and share draws are independent, and a 100% loss rate is treated as certain.
 
 **Limits.** This is a scenario tool, not a forecast. Starting figures come from company filings and earnings releases but periods differ and numbers change each quarter. Not investment advice.
+
+
+**Live data.** Revenue is the most recent full year (340 to 380 days) reported on a 10-K or 20-F, read from the SEC EDGAR company facts API. The app checks the common revenue tags and keeps the latest one. ASML's euro revenue is converted at the latest FRED dollar per euro rate. Trade figures are FRED series EXPCH and IMPCH, shown as 3 month averages. The change figure compares the latest 12 months with the 12 months before October 2022. China shares are not in the SEC's free data, so they stay as filed. Successful pulls are cached for a day; failures fall back to the saved figures.

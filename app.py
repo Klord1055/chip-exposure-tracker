@@ -11,6 +11,7 @@ import streamlit as st
 
 from tracker.model import (POLICY_TIMELINE, SCENARIOS, SEGMENTS, Scenario, breaking_point, clean, exposure_table,
                            monte_carlo, recovery_path, scenario_impact, summary_stats)
+from tracker.live import CIKS, FRED_SERIES, apply_live_revenue, fetch_fred, fetch_sec_revenue, trade_change
 from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway
 
 st.set_page_config(page_title="Chip Export Control Exposure Tracker", page_icon="🔌", layout="wide")
@@ -24,6 +25,37 @@ SEG_COLORS = {"Chip designer": NAVY, "Equipment": "#6B4FA8"}
 @st.cache_data
 def load() -> pd.DataFrame:
     return pd.read_csv(ROOT / "data" / "companies.csv")
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling the latest SEC filing data...")
+def _sec(ticker: str) -> dict:
+    r = fetch_sec_revenue(ticker)
+    if r is None:
+        raise RuntimeError("SEC unavailable")  # errors are not cached, so the next visit retries
+    return r
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling the latest Federal Reserve data...")
+def _fred(series: str) -> pd.DataFrame:
+    r = fetch_fred(series)
+    if r is None:
+        raise RuntimeError("FRED unavailable")
+    return r
+
+
+def _try(fn, arg):
+    try:
+        return fn(arg)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def get_live() -> dict:
+    """Free sources, cached for a day once they succeed. Anything that fails comes back as None."""
+    revenue = {t: _try(_sec, t) for t in CIKS}
+    fred = {s: _try(_fred, s) for s in FRED_SERIES}
+    fx = fred["DEXUSEU"]["value"].iloc[-1] if fred["DEXUSEU"] is not None else None
+    return dict(revenue=revenue, fred=fred, fx=fx, pulled=pd.Timestamp.now(tz="America/New_York"))
 
 
 def reset():
@@ -53,16 +85,42 @@ with st.sidebar:
     st.header("3. Breaking point")
     hit = st.slider("Revenue loss you call material", 1, 20, 5, 1, format="%d%%", key="hit",
                     help="The share of total revenue a company could lose before you treat the hit as serious.") / 100
+    st.header("4. Data")
+    use_live = st.toggle("Use live data", True, key="use_live",
+                         help="Pulls each company's latest annual revenue from SEC filings and U.S. China trade from the "
+                              "Federal Reserve. Free, refreshed daily. Turn off to use the saved filing figures.")
 
 scen = Scenario(pick, ld, le, rc, base.description)
-if "companies" not in st.session_state:
-    st.session_state["companies"] = load()
+if use_live and "live" not in st.session_state:
+    st.session_state["live"] = get_live()  # one pull per visit; successful pulls are also shared for a day
+live = st.session_state.get("live") if use_live else None
+live_rev = {t: r for t, r in (live or {}).get("revenue", {}).items() if r}
+if st.session_state.get("companies_src") != use_live or "companies" not in st.session_state:
+    base_table = load()
+    if live_rev:
+        base_table = apply_live_revenue(base_table, live_rev, live["fx"])
+    st.session_state["companies"] = base_table
+    st.session_state["companies_src"] = use_live
 df = clean(st.session_state["companies"])
 
 st.title("Chip Export Control Exposure Tracker")
 intro("How much revenue, operating profit and market value chip companies put at risk as U.S. export controls on "
            "China tighten. Built as the quantitative companion to my research paper, Nvidia and the Financial Cost of "
-           "U.S. China Chip Decoupling. Starting figures come from company filings and earnings releases dated 2024 to early 2025 (see the Period columns); edit any of them.")
+           "U.S. China Chip Decoupling. Revenue comes from SEC filings and China shares from each company's geographic "
+           "disclosure (see the Period columns); edit any of them.")
+if use_live:
+    n_ok = sum(1 for t in CIKS if live_rev.get(t))
+    exp = live["fred"].get("EXPCH")
+    parts = []
+    if n_ok:
+        newest = max(r["filed"] for r in live_rev.values())
+        parts.append(f"annual revenue for <b>{n_ok} of {len(CIKS)}</b> companies is live from SEC filings (newest filed {newest})")
+    if exp is not None:
+        parts.append(f"U.S. China trade is live from the Federal Reserve through <b>{exp['date'].iloc[-1]:%b %Y}</b>")
+    msg = ("Live data: " + "; ".join(parts) + f". Checked {live['pulled']:%b %d, %Y}. China shares stay as filed, "
+           "because the SEC's free data does not split revenue by country.") if parts else \
+          "Live sources could not be reached just now, so the app is using the saved filing figures. It will try again later."
+    st.markdown(f"<div class='note' style='margin:-4px 0 12px 0'>{msg}</div>", unsafe_allow_html=True)
 
 if df.empty:
     st.error("The company table has no usable rows. Each row needs a name, a segment, revenue above zero and a China share "
@@ -93,7 +151,8 @@ m3.metric("Market value at risk", f"${imp.value_at_risk_bn.sum():,.1f}bn",
 yr3 = sum(recovery_path(r.revenue_lost_bn, rc)[-1] for _, r in imp.iterrows())
 m4.metric("Still lost in year 3", f"${yr3:,.1f}bn", f"{yr3 / total_lost - 1:+.0%} vs year 1" if total_lost else None, delta_color="inverse")
 
-tabs = st.tabs(["Exposure", "Breaking point", "Scenario impact", "Monte Carlo", "Policy timeline", "Methodology"])
+tabs = st.tabs(["Exposure", "Breaking point", "Scenario impact", "Monte Carlo", "Policy timeline", "Live trade data",
+                "Methodology"])
 
 with tabs[0]:
     st.subheader("Who sells the most into China")
@@ -234,4 +293,40 @@ with tabs[4]:
     takeaway("Each step since 2022 widened what needs a license to sell into China. The scenarios in this app price out what the next step could cost.")
 
 with tabs[5]:
+    st.subheader("U.S. goods trade with China, monthly")
+    fred = (live or {}).get("fred", {}) if use_live else {}
+    exp_s, imp_s = fred.get("EXPCH"), fred.get("IMPCH")
+    if exp_s is None and imp_s is None:
+        st.info("Live trade data is off or the Federal Reserve could not be reached. Turn on Use live data in the left panel, "
+                "or try again later.")
+    else:
+        tf = go.Figure()
+        for s_, name_, col_ in ((exp_s, "Exports to China", NAVY), (imp_s, "Imports from China", GOLD)):
+            if s_ is not None:
+                s2 = s_[s_["date"] >= "2015-01-01"]
+                tf.add_scatter(x=s2["date"], y=s2["value"].rolling(3, min_periods=1).mean() / 1000, name=name_ + " (3 month avg)",
+                               mode="lines", line=dict(color=col_, width=3))
+        for d_, lab_ in (("2022-10-07", "Oct 2022 rules"), ("2023-10-17", "Oct 2023 update"), ("2024-12-02", "Dec 2024 rules"),
+                         ("2025-04-15", "H20 license")):
+            tf.add_shape(type="line", x0=d_, x1=d_, y0=0, y1=1, yref="paper", line=dict(color=RED, dash="dot", width=2))
+            tf.add_annotation(x=d_, y=1, yref="paper", text=lab_, showarrow=False, yanchor="bottom",
+                              font=dict(size=12, color=RED), textangle=-30)
+        tf.update_layout(height=420, margin=dict(t=60, b=10), yaxis_title="$ billions per month",
+                         legend=dict(orientation="h", y=-0.15))
+        st.plotly_chart(tf, width=W, theme=None)
+        ch = trade_change(exp_s) if exp_s is not None else None
+        ci = trade_change(imp_s) if imp_s is not None else None
+        c1, c2 = st.columns(2)
+        if ch:
+            c1.metric("Exports to China, last 12 months", f"${ch['now'] / 1000:,.0f}bn", f"{ch['change']:+.0%} vs the year before Oct 2022",
+                      delta_color="off")
+        if ci:
+            c2.metric("Imports from China, last 12 months", f"${ci['now'] / 1000:,.0f}bn", f"{ci['change']:+.0%} vs the year before Oct 2022",
+                      delta_color="off")
+        if ch:
+            takeaway(f"In the 12 months through <b>{ch['through']:%b %Y}</b>, U.S. goods exports to China were <b>{ch['change']:+.0%}</b> "
+                     "versus the year before the first chip rules. This is all goods, not just chips, so read it as the backdrop the "
+                     "scenarios sit in. Source: Federal Reserve Bank of St. Louis (FRED), series EXPCH and IMPCH, from Census data.")
+
+with tabs[6]:
     st.markdown((ROOT / "HOW_IT_WORKS.md").read_text())

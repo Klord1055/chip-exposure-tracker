@@ -17,11 +17,19 @@ I wrote a research paper, *Nvidia and the Financial Cost of U.S. China Chip Deco
 | Scenario impact | Revenue, operating profit and market value at risk, per company hit, three year recovery path, all scenarios side by side |
 | Monte Carlo | Distribution of basket revenue lost with 5th to 95th percentile range |
 | Policy timeline | Key U.S. export control actions since 2022 |
+| Live trade data | Monthly U.S. goods exports to and imports from China from the Federal Reserve, with each export control action marked |
 | Methodology | Every formula used |
 
 ## Data
 
-Starting figures come from company 10-K filings, annual results and earnings releases dated 2024 to early 2025. The table lists the revenue period, the China share period and the source for each company. Periods differ (some China shares are from a single quarter), and ASML's China share is of system sales only, so update the table with the latest filings before relying on any number.
+Live and free, with no API keys:
+
+- **Annual revenue:** pulled from each company's latest 10-K or 20-F through the SEC EDGAR company facts API. ASML reports in euros, so its revenue is converted at the latest Federal Reserve exchange rate.
+- **U.S. goods trade with China:** monthly exports (EXPCH) and imports (IMPCH) from FRED, the Federal Reserve Bank of St. Louis, based on Census data.
+
+Successful pulls are cached for a day. If a source can't be reached, the app says so and uses the saved filing figures.
+
+China shares come from each company's geographic disclosure in filings and earnings releases. The table lists the period and source for each one. The SEC's free data does not split revenue by country, so update these shares when new filings come out. Some are from a single quarter. ASML's share counts only system sales.
 
 ## Tech
 
