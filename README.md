@@ -13,6 +13,7 @@ I wrote a research paper, *Nvidia and the Financial Cost of U.S. China Chip Deco
 | Tab | Output |
 |---|---|
 | Exposure | Editable company table, China share and China dollars by company, exposure tiers |
+| Breaking point | How much China business each company can lose before it costs a material share of total revenue |
 | Scenario impact | Revenue, operating profit and market value at risk, per company hit, three year recovery path, all scenarios side by side |
 | Monte Carlo | Distribution of basket revenue lost with 5th to 95th percentile range |
 | Policy timeline | Key U.S. export control actions since 2022 |
@@ -20,7 +21,7 @@ I wrote a research paper, *Nvidia and the Financial Cost of U.S. China Chip Deco
 
 ## Data
 
-Starting figures come from company 10-K filings, annual results and earnings releases; the table lists the period and source for each. Periods differ, so update them with the latest filing before relying on any number.
+Starting figures come from company 10-K filings, annual results and earnings releases dated 2024 to early 2025. The table lists the revenue period, the China share period and the source for each company. Periods differ (some China shares are from a single quarter), and ASML's China share is of system sales only, so update the table with the latest filings before relying on any number.
 
 ## Tech
 
