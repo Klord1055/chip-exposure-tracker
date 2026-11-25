@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tracker.live import apply_live_revenue, latest_annual_revenue, parse_fred_csv, trade_change
+from tracker.live import apply_live_revenue, load_snapshot, parse_ecb_fx, latest_annual_revenue, parse_fred_csv, trade_change
 
 FACTS = {"facts": {"us-gaap": {
     "Revenues": {"units": {"USD": [
@@ -60,3 +60,16 @@ def test_trade_change():
     s = pd.DataFrame({"date": dates, "value": [100.0] * 33 + [80.0] * 27})
     r = trade_change(s, "2022-10-01")
     assert r["before"] == 1200 and r["now"] == 960 and r["change"] == pytest.approx(-0.2)
+
+
+def test_parse_ecb_fx():
+    txt = "KEY,FREQ,TIME_PERIOD,OBS_VALUE\nEXR.D.USD.EUR.SP00.A,D,2026-11-24,1.0975\n"
+    assert parse_ecb_fx(txt) == 1.0975
+    assert parse_ecb_fx("a,b\n1,2\n") is None
+
+
+def test_snapshot_loads_and_matches_fred():
+    snap = load_snapshot(Path(__file__).resolve().parents[1] / "data" / "fred_snapshot.csv")
+    e = snap["series"]["EXPCH"].set_index("date")["value"]
+    assert len(e) == 141 and e[pd.Timestamp("2026-09-01")] == 9614 and e[pd.Timestamp("2018-08-01")] == 9278
+    assert snap["fx"] == 1.0981 and snap["through"] == pd.Timestamp("2026-09-01")
