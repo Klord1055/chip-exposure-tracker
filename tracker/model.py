@@ -34,6 +34,26 @@ SCENARIOS = {
 }
 
 
+def clean(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep rows a user can trust: a name, positive revenue, a China share between 0 and 1, a known segment."""
+    out = df.copy()
+    out["annual_revenue_bn"] = pd.to_numeric(out["annual_revenue_bn"], errors="coerce")
+    out["china_share"] = pd.to_numeric(out["china_share"], errors="coerce")
+    out = out.dropna(subset=["company", "annual_revenue_bn", "china_share", "segment"])
+    out = out[out["company"].astype(str).str.strip() != ""]
+    out = out[np.isfinite(out["annual_revenue_bn"]) & (out["annual_revenue_bn"] > 0) & out["china_share"].between(0, 1) & out["segment"].isin(SEGMENTS)]
+    return out.reset_index(drop=True)
+
+
+def breaking_point(df: pd.DataFrame, revenue_hit: float = 0.05) -> pd.DataFrame:
+    """Share of China revenue a company must lose before it loses `revenue_hit` of total revenue.
+    Exact: loss rate = revenue_hit / china_share. Above 100% means it cannot happen through China alone."""
+    out = exposure_table(df)
+    with np.errstate(divide="ignore"):
+        out["breaking_point"] = np.where(out["china_share"] > 0, revenue_hit / out["china_share"], np.inf)
+    return out.sort_values("breaking_point").reset_index(drop=True)
+
+
 def exposure_table(df: pd.DataFrame) -> pd.DataFrame:
     """China revenue in $bn and an exposure tier for each company."""
     out = df.copy()
@@ -62,8 +82,8 @@ def scenario_impact(df: pd.DataFrame, scen: Scenario, margin: float = 0.45,
 
 def recovery_path(revenue_lost_bn: float, recapture: float, years: int = 3) -> list[float]:
     """Net revenue still lost each year as sales are redirected to other regions.
-    Recapture ramps linearly to its full level by the last year."""
-    return [revenue_lost_bn * (1 - recapture * (y / years)) for y in range(1, years + 1)]
+    Year 1 is the full loss; recapture ramps in a straight line to its full level by the last year."""
+    return [revenue_lost_bn * (1 - recapture * (y - 1) / (years - 1)) for y in range(1, years + 1)]
 
 
 def monte_carlo(df: pd.DataFrame, scen: Scenario, n: int = 5000, sd: float = 0.15,
@@ -78,9 +98,8 @@ def monte_carlo(df: pd.DataFrame, scen: Scenario, n: int = 5000, sd: float = 0.1
         mean = loss_rate(r["segment"], scen)
         if mean <= 0:
             continue
-        mean = min(mean, 0.99)
         k = 20.0  # concentration: higher means tighter around the mean
-        draws = rng.beta(mean * k, (1 - mean) * k, n)
+        draws = np.ones(n) if mean >= 1 else rng.beta(mean * k, (1 - mean) * k, n)
         share = np.clip(r["china_share"] * (1 + rng.normal(0, sd, n)), 0, 1)
         rev += r["annual_revenue_bn"] * share * draws
     return pd.DataFrame({"revenue_lost_bn": rev, "op_profit_lost_bn": rev * margin})
