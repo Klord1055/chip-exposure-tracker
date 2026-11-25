@@ -13,6 +13,9 @@ from tracker.model import (POLICY_TIMELINE, SCENARIOS, SEGMENTS, Scenario, break
                            monte_carlo, recovery_path, scenario_impact, summary_stats)
 from tracker.live import (CIKS, FRED_SERIES, apply_live_revenue, fetch_ecb_fx, fetch_fred, fetch_sec_revenue,
                           load_snapshot, trade_change)
+import importlib
+import ui
+importlib.reload(ui)  # pick up ui.py changes on hot redeploy
 from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway, wrap
 
 st.set_page_config(page_title="Chip Export Control Exposure Tracker", page_icon="🔌", layout="wide")
